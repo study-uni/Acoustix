@@ -5,12 +5,16 @@ description = "High-speed FPV drone acoustic signature detection and DSP engine"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.143.0",
     "numpy>=2.0.0",
     "scipy>=1.13.0",
+    "uvicorn>=0.54.0",
+    "websockets>=17.2",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=8.0.0",
     "ruff>=0.8.0",
 ]

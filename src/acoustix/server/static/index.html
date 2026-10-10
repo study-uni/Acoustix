@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acoustix // Real-Time Acoustic Telemetry</title>
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-surface: #111827;
+      --bg-card: #182234;
+      --border: #243247;
+      --text-primary: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-cyan: #06b6d4;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #fff;
+    }
+
+    .brand-sub {
+      font-size: 12px;
+      color: var(--accent-cyan);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(6, 182, 212, 0.08);
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-red);
+      box-shadow: 0 0 8px var(--accent-red);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .status-dot.connected {
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+
+    main {
+      flex: 1;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* HUD Metrics Grid */
+    .hud-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+    }
+
+    .hud-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .hud-card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .hud-card-value {
+      font-family: var(--font-mono);
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.1;
+      transition: color 0.2s;
+    }
+
+    .hud-card-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Confidence Bar */
+    .confidence-meter {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+
+    .confidence-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent-green);
+      transition: width 0.15s ease-out, background 0.2s;
+    }
+
+    /* Harmonics Tags */
+    .harmonics-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .harmonic-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      color: var(--accent-cyan);
+    }
+
+    /* Spectrogram Canvas Section */
+    .spectrogram-container {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .spectrogram-header {
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+
+    .colormap-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .colormap-gradient {
+      width: 120px;
+      height: 10px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #30123b, #4145ab, #4675ed, #39a2fc, #1bcfd4, #24eca6, #61fc6c, #a4fc3b, #d1e834, #f3c63a, #fe9b2d, #f36315, #d93806, #b11901, #7a0402);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .canvas-wrapper {
+      position: relative;
+      width: 100%;
+      height: 520px;
+      background: #000;
+    }
+
+    canvas#waterfallCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    footer {
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border);
+      padding: 8px 24px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-title">ACOUSTIX</div>
+      <div class="brand-sub">FPV Acoustic Signature Engine</div>
+    </div>
+    <div class="connection-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Disconnected</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hud-grid">
+      <!-- RPM Readout -->
+      <div class="hud-card">
+        <div class="hud-card-label">Motor Rotational Speed</div>
+        <div class="hud-card-value" id="rpmValue" style="color: var(--text-muted);">--- RPM</div>
+        <div class="hud-card-sub" id="rpmSub">Waiting for stream...</div>
+      </div>
+
+      <!-- BPF Readout -->
+      <div class="hud-card">
+        <div class="hud-card-label">Blade Passing Frequency (BPF)</div>
+        <div class="hud-card-value" id="bpfValue" style="color: var(--accent-cyan);">--- Hz</div>
+        <div class="hud-card-sub">Fundamental (1&times; BPF, 3 blades)</div>
+      </div>
+
+      <!-- Tracking Confidence -->
+      <div class="hud-card">
+        <div class="hud-card-label">Tracking Confidence</div>
+        <div class="hud-card-value" id="confidenceValue" style="color: var(--text-muted);">0.0%</div>
+        <div class="confidence-meter">
+          <div class="confidence-fill" id="confidenceFill"></div>
+        </div>
+      </div>
+
+      <!-- Harmonics -->
+      <div class="hud-card">
+        <div class="hud-card-label">Tracked Harmonics</div>
+        <div class="harmonics-list" id="harmonicsList">
+          <span class="harmonic-tag">1&times; ---</span>
+          <span class="harmonic-tag">2&times; ---</span>
+          <span class="harmonic-tag">3&times; ---</span>
+          <span class="harmonic-tag">4&times; ---</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Waterfall Spectrogram -->
+    <section class="spectrogram-container">
+      <div class="spectrogram-header">
+        <div>REAL-TIME WATERFALL SPECTROGRAM (0 &ndash; 6,000 Hz)</div>
+        <div class="colormap-bar">
+          <span>-90 dB</span>
+          <div class="colormap-gradient"></div>
+          <span>0 dB</span>
+        </div>
+      </div>
+      <div class="canvas-wrapper" id="canvasWrapper">
+        <canvas id="waterfallCanvas"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div id="footerInfo">DSP: 4th-order HPF &gt;350 Hz | STFT 2048 / 512 hop | Fs 48 kHz</div>
+    <div id="fpsInfo">Stream Rate: -- FPS</div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,6 +1,11 @@
 version: '3'
 
 tasks:
+  serve:
+    desc: Run streaming dashboard server on http://localhost:8000
+    cmds:
+      - uv run python -m acoustix.server.app {{.CLI_ARGS}}
+
   ruff:
     desc: Run ruff linter and format check
     cmds:
