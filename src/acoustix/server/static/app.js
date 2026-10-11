@@ -238,38 +238,46 @@
   let reconnectTimer = null;
 
   async function startMic() {
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+    // If browser supports getUserMedia (secure context: localhost, 127.0.0.1, or https)
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
 
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-      const micSource = audioCtx.createMediaStreamSource(micStream);
-      micProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+        const micSource = audioCtx.createMediaStreamSource(micStream);
+        micProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
 
-      micProcessor.onaudioprocess = (e) => {
-        if (currentSource === "mic" && currentWs && currentWs.readyState === WebSocket.OPEN) {
-          const channelData = e.inputBuffer.getChannelData(0);
-          currentWs.send(channelData.buffer);
-        }
-      };
+        micProcessor.onaudioprocess = (e) => {
+          if (currentSource === "mic" && currentWs && currentWs.readyState === WebSocket.OPEN) {
+            const channelData = e.inputBuffer.getChannelData(0);
+            currentWs.send(channelData.buffer);
+          }
+        };
 
-      micSource.connect(micProcessor);
-      micProcessor.connect(audioCtx.destination);
+        micSource.connect(micProcessor);
+        micProcessor.connect(audioCtx.destination);
 
-      currentSource = "mic";
-      if (btnMic) btnMic.classList.add("active");
-      if (btnSynth) btnSynth.classList.remove("active");
-      connectWebSocket("?source=mic");
-    } catch (err) {
-      console.error("Microphone access error:", err);
-      alert("Не удалось получить доступ к микрофону: " + err.message);
-      stopMic();
+        currentSource = "mic";
+        if (btnMic) btnMic.classList.add("active");
+        if (btnSynth) btnSynth.classList.remove("active");
+        connectWebSocket("?source=mic");
+        return;
+      } catch (err) {
+        console.warn("Browser mic access failed, falling back to server_mic:", err);
+      }
     }
+
+    // Fallback: direct hardware mic capture on server via sounddevice
+    currentSource = "server_mic";
+    if (btnMic) btnMic.classList.add("active");
+    if (btnSynth) btnSynth.classList.remove("active");
+    connectWebSocket("?source=server_mic");
   }
 
   function stopMic() {
@@ -327,7 +335,8 @@
 
     ws.onopen = () => {
       statusDot.classList.add("connected");
-      statusText.textContent = `Connected (${currentSource === "mic" ? "Mic" : "Synth"})`;
+      const label = currentSource === "synth" ? "Synth" : "Live Mic";
+      statusText.textContent = `Connected (${label})`;
     };
 
     ws.onmessage = (event) => {
