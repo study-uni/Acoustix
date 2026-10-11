@@ -86,3 +86,20 @@ def test_websocket_stream_file_not_found() -> None:
             websocket.receive_json()
         except Exception:
             pass  # Expected disconnect on file not found
+
+
+def test_websocket_stream_mic() -> None:
+    """Verify WebSocket /ws/stream with client-side binary audio frames."""
+    client = TestClient(app)
+    with client.websocket_connect("/ws/stream?source=mic") as websocket:
+        # Send 1024 float32 PCM samples
+        fs = 48000
+        t = np.arange(1024) / fs
+        samples = np.sin(2 * np.pi * 1200 * t).astype(np.float32)
+        websocket.send_bytes(samples.tobytes())
+
+        data = websocket.receive_json()
+        assert "rpm" in data
+        assert "bpf" in data
+        assert "spectrum_db" in data
+        assert len(data["freqs"]) > 0

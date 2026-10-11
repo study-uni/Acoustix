@@ -226,16 +226,108 @@
     }
   }
 
-  // WebSocket Connection Manager
-  function connectWebSocket() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/stream`;
+  // Source Switcher & Live Microphone Capture
+  const btnSynth = document.getElementById("btnSynth");
+  const btnMic = document.getElementById("btnMic");
 
+  let currentSource = "synth";
+  let micStream = null;
+  let audioCtx = null;
+  let micProcessor = null;
+  let currentWs = null;
+  let reconnectTimer = null;
+
+  async function startMic() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      micProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
+
+      micProcessor.onaudioprocess = (e) => {
+        if (currentSource === "mic" && currentWs && currentWs.readyState === WebSocket.OPEN) {
+          const channelData = e.inputBuffer.getChannelData(0);
+          currentWs.send(channelData.buffer);
+        }
+      };
+
+      micSource.connect(micProcessor);
+      micProcessor.connect(audioCtx.destination);
+
+      currentSource = "mic";
+      if (btnMic) btnMic.classList.add("active");
+      if (btnSynth) btnSynth.classList.remove("active");
+      connectWebSocket("?source=mic");
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      alert("Не удалось получить доступ к микрофону: " + err.message);
+      stopMic();
+    }
+  }
+
+  function stopMic() {
+    if (micStream) {
+      micStream.getTracks().forEach((track) => track.stop());
+      micStream = null;
+    }
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+    micProcessor = null;
+    currentSource = "synth";
+    if (btnSynth) btnSynth.classList.add("active");
+    if (btnMic) btnMic.classList.remove("active");
+  }
+
+  if (btnSynth) {
+    btnSynth.addEventListener("click", () => {
+      if (currentSource === "synth") return;
+      stopMic();
+      connectWebSocket("?source=synth");
+    });
+  }
+
+  if (btnMic) {
+    btnMic.addEventListener("click", () => {
+      if (currentSource === "mic") return;
+      startMic();
+    });
+  }
+
+  // WebSocket Connection Manager
+  function connectWebSocket(customQuery) {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+
+    if (currentWs) {
+      currentWs.onclose = null;
+      currentWs.close();
+      currentWs = null;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    let query = customQuery;
+    if (query === undefined) {
+      query = window.location.search || `?source=${currentSource}`;
+    }
+
+    const wsUrl = `${protocol}//${window.location.host}/ws/stream${query}`;
     const ws = new WebSocket(wsUrl);
+    currentWs = ws;
 
     ws.onopen = () => {
       statusDot.classList.add("connected");
-      statusText.textContent = "Connected";
+      statusText.textContent = `Connected (${currentSource === "mic" ? "Mic" : "Synth"})`;
     };
 
     ws.onmessage = (event) => {
@@ -252,7 +344,7 @@
     ws.onclose = () => {
       statusDot.classList.remove("connected");
       statusText.textContent = "Disconnected (Reconnecting...)";
-      setTimeout(connectWebSocket, 2000);
+      reconnectTimer = setTimeout(() => connectWebSocket(query), 2000);
     };
 
     ws.onerror = () => {

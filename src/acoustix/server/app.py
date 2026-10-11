@@ -7,10 +7,11 @@ from pathlib import Path
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from scipy.io import wavfile
+from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
 from acoustix.dsp.filter import StreamingHighPassFilter
 from acoustix.dsp.stft import StreamingSTFT
@@ -82,7 +83,98 @@ async def websocket_stream(
     hop_size = 512
     n_fft = 2048
 
-    # Ingest audio according to requested source
+    hp_filter = StreamingHighPassFilter(cutoff=350.0, fs=sample_rate)
+    stft = StreamingSTFT(n_fft=n_fft, hop_length=hop_size, fs=sample_rate)
+    tracker = HarmonicTracker(num_blades=3)
+
+    freq_mask = stft.frequencies <= 6000.0
+    sliced_freqs_list = np.round(stft.frequencies[freq_mask], 1).tolist()
+
+    # Live client-side microphone streaming (browser Web Audio API sends Float32 PCM)
+    if source == "mic":
+        mic_accumulator = np.empty(0, dtype=np.float64)
+        frame_idx = 0
+        try:
+            while True:
+                msg = await websocket.receive()
+                if "bytes" in msg and msg["bytes"]:
+                    chunk = np.frombuffer(msg["bytes"], dtype=np.float32).astype(np.float64)
+                    mic_accumulator = np.concatenate([mic_accumulator, chunk])
+
+                    while len(mic_accumulator) >= hop_size:
+                        sub_chunk = mic_accumulator[:hop_size]
+                        mic_accumulator = mic_accumulator[hop_size:]
+
+                        filtered_chunk = hp_filter.process(sub_chunk)
+                        spectrum_db = stft.process(filtered_chunk)
+                        track_result = tracker.process_frame(spectrum_db, stft.frequencies)
+                        sliced_spectrum = spectrum_db[freq_mask]
+
+                        timestamp = round(frame_idx * (hop_size / sample_rate), 3)
+                        packet = {
+                            "freqs": sliced_freqs_list,
+                            "spectrum_db": np.round(sliced_spectrum, 1).tolist(),
+                            "bpf": round(float(track_result.bpf), 1),
+                            "rpm": round(float(track_result.rpm), 1),
+                            "confidence": round(float(track_result.confidence), 3),
+                            "harmonics": [round(float(h), 1) for h in track_result.harmonics],
+                            "timestamp": timestamp,
+                        }
+                        await websocket.send_json(packet)
+                        frame_idx += 1
+        except (WebSocketDisconnect, WebSocketDisconnected, asyncio.CancelledError):
+            pass
+        return
+
+    # Server-side hardware microphone streaming via sounddevice
+    if source == "server_mic":
+        try:
+            import sounddevice as sd
+        except ImportError:
+            await websocket.close(code=1011, reason="sounddevice library is not installed")
+            return
+
+        queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=100)
+        loop = asyncio.get_running_loop()
+
+        def audio_callback(indata, frames, time_info, status):
+            chunk = np.copy(indata[:, 0]).astype(np.float64)
+            loop.call_soon_threadsafe(queue.put_nowait, chunk)
+
+        stream = sd.InputStream(
+            samplerate=sample_rate,
+            blocksize=hop_size,
+            channels=1,
+            dtype="float32",
+            callback=audio_callback,
+        )
+        try:
+            with stream:
+                frame_idx = 0
+                while True:
+                    chunk = await queue.get()
+                    filtered_chunk = hp_filter.process(chunk)
+                    spectrum_db = stft.process(filtered_chunk)
+                    track_result = tracker.process_frame(spectrum_db, stft.frequencies)
+                    sliced_spectrum = spectrum_db[freq_mask]
+
+                    timestamp = round(frame_idx * (hop_size / sample_rate), 3)
+                    packet = {
+                        "freqs": sliced_freqs_list,
+                        "spectrum_db": np.round(sliced_spectrum, 1).tolist(),
+                        "bpf": round(float(track_result.bpf), 1),
+                        "rpm": round(float(track_result.rpm), 1),
+                        "confidence": round(float(track_result.confidence), 3),
+                        "harmonics": [round(float(h), 1) for h in track_result.harmonics],
+                        "timestamp": timestamp,
+                    }
+                    await websocket.send_json(packet)
+                    frame_idx += 1
+        except (WebSocketDisconnect, WebSocketDisconnected, asyncio.CancelledError):
+            pass
+        return
+
+    # Ingest audio from file
     if source == "file":
         if not file_path:
             await websocket.close(
@@ -119,14 +211,6 @@ async def websocket_stream(
         await websocket.close(code=1011, reason="Audio buffer too short")
         return
 
-    hp_filter = StreamingHighPassFilter(cutoff=350.0, fs=sample_rate)
-    stft = StreamingSTFT(n_fft=n_fft, hop_length=hop_size, fs=sample_rate)
-    tracker = HarmonicTracker(num_blades=3)
-
-    # Precompute frequency grid slicing up to 6,000 Hz to save bandwidth and CPU
-    freq_mask = stft.frequencies <= 6000.0
-    sliced_freqs_list = np.round(stft.frequencies[freq_mask], 1).tolist()
-
     buffer_len = len(audio_buffer)
     offset = 0
     frame_idx = 0
@@ -162,7 +246,7 @@ async def websocket_stream(
             await asyncio.sleep(sleep_interval)
             frame_idx += 1
 
-    except (WebSocketDisconnect, asyncio.CancelledError):
+    except (WebSocketDisconnect, WebSocketDisconnected, asyncio.CancelledError):
         pass
 
 
