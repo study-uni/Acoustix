@@ -29,6 +29,16 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    """Ensure static files and HTML pages are never cached stale by browsers."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/")
 async def get_index() -> FileResponse:
     """Serve the real-time canvas waterfall dashboard."""

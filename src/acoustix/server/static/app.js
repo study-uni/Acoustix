@@ -150,7 +150,7 @@
     }
 
     // 3. Harmonic Tracking Overlays (monochrome precision markers)
-    if (lastPacket && lastPacket.bpf > 0 && lastPacket.confidence > 0.1) {
+    if (lastPacket && lastPacket.bpf > 0 && lastPacket.confidence >= 0.2) {
       const bpf = lastPacket.bpf;
       const harmonics = lastPacket.harmonics || [bpf, bpf * 2, bpf * 3, bpf * 4];
 
@@ -191,22 +191,32 @@
     const bpf = packet.bpf || 0;
     const conf = Math.max(0, Math.min(1, packet.confidence || 0));
 
-    rpmValue.textContent = `${Math.round(rpm).toLocaleString()} RPM`;
-    bpfValue.textContent = `${bpf.toFixed(1)} HZ`;
-
     const confPct = (conf * 100).toFixed(1);
     confidenceValue.textContent = `${confPct}%`;
     confidenceFill.style.width = `${confPct}%`;
 
-    const harmonics = packet.harmonics || [];
-    if (harmonics.length > 0) {
-      harmonicsList.innerHTML = harmonics
-        .map((h, i) => `<span class="harmonic-tag">${i + 1}&times; ${Math.round(h)} HZ</span>`)
-        .join("");
+    if (conf < 0.2) {
+      rpmValue.textContent = "--- RPM";
+      rpmValue.style.color = "var(--text-muted)";
+      bpfValue.textContent = "--- HZ";
+      bpfValue.style.color = "var(--text-muted)";
+      harmonicsList.innerHTML = '<span class="harmonic-tag">NO TARGET</span>';
+    } else {
+      rpmValue.textContent = `${Math.round(rpm).toLocaleString()} RPM`;
+      rpmValue.style.color = "var(--text-primary)";
+      bpfValue.textContent = `${bpf.toFixed(1)} HZ`;
+      bpfValue.style.color = "var(--text-primary)";
+
+      const harmonics = packet.harmonics || [];
+      if (harmonics.length > 0) {
+        harmonicsList.innerHTML = harmonics
+          .map((h, i) => `<span class="harmonic-tag">${i + 1}&times; ${Math.round(h)} HZ</span>`)
+          .join("");
+      }
     }
   }
 
-  // Source Switcher & Live Microphone Capture
+  // Source Switcher & Capture Management
   const btnSynth = document.getElementById("btnSynth");
   const btnMic = document.getElementById("btnMic");
 
@@ -217,8 +227,25 @@
   let currentWs = null;
   let reconnectTimer = null;
 
-  async function startMic() {
-    // If browser supports getUserMedia (secure context: localhost, 127.0.0.1, or https)
+  function stopMic() {
+    if (micStream) {
+      micStream.getTracks().forEach((track) => track.stop());
+      micStream = null;
+    }
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+    micProcessor = null;
+  }
+
+  async function switchToMic() {
+    stopMic();
+    currentSource = "mic";
+    if (btnMic) btnMic.classList.add("active");
+    if (btnSynth) btnSynth.classList.remove("active");
+    window.history.replaceState(null, "", "?source=mic");
+
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
         micStream = await navigator.mediaDevices.getUserMedia({
@@ -233,6 +260,10 @@
         const micSource = audioCtx.createMediaStreamSource(micStream);
         micProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
 
+        // Mute gain node prevents local speaker feedback
+        const muteGain = audioCtx.createGain();
+        muteGain.gain.value = 0;
+
         micProcessor.onaudioprocess = (e) => {
           if (currentSource === "mic" && currentWs && currentWs.readyState === WebSocket.OPEN) {
             const channelData = e.inputBuffer.getChannelData(0);
@@ -241,11 +272,9 @@
         };
 
         micSource.connect(micProcessor);
-        micProcessor.connect(audioCtx.destination);
+        micProcessor.connect(muteGain);
+        muteGain.connect(audioCtx.destination);
 
-        currentSource = "mic";
-        if (btnMic) btnMic.classList.add("active");
-        if (btnSynth) btnSynth.classList.remove("active");
         connectWebSocket("?source=mic");
         return;
       } catch (err) {
@@ -253,40 +282,28 @@
       }
     }
 
-    // Fallback: direct hardware mic capture on server via sounddevice
     currentSource = "server_mic";
-    if (btnMic) btnMic.classList.add("active");
-    if (btnSynth) btnSynth.classList.remove("active");
     connectWebSocket("?source=server_mic");
   }
 
-  function stopMic() {
-    if (micStream) {
-      micStream.getTracks().forEach((track) => track.stop());
-      micStream = null;
-    }
-    if (audioCtx) {
-      audioCtx.close().catch(() => {});
-      audioCtx = null;
-    }
-    micProcessor = null;
+  function switchToSynth() {
+    stopMic();
     currentSource = "synth";
     if (btnSynth) btnSynth.classList.add("active");
     if (btnMic) btnMic.classList.remove("active");
+    window.history.replaceState(null, "", window.location.pathname);
+    connectWebSocket("?source=synth");
   }
 
   if (btnSynth) {
     btnSynth.addEventListener("click", () => {
-      if (currentSource === "synth") return;
-      stopMic();
-      connectWebSocket("?source=synth");
+      switchToSynth();
     });
   }
 
   if (btnMic) {
     btnMic.addEventListener("click", () => {
-      if (currentSource === "mic" || currentSource === "server_mic") return;
-      startMic();
+      switchToMic();
     });
   }
 
@@ -304,11 +321,7 @@
     }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    let query = customQuery;
-    if (query === undefined) {
-      query = window.location.search || `?source=${currentSource}`;
-    }
-
+    const query = customQuery !== undefined ? customQuery : `?source=${currentSource}`;
     const wsUrl = `${protocol}//${window.location.host}/ws/stream${query}`;
     const ws = new WebSocket(wsUrl);
     currentWs = ws;
@@ -340,5 +353,12 @@
     };
   }
 
-  connectWebSocket();
+  // Initialize: default to synth on fresh load, or obey explicit URL parameter
+  const initialParams = new URLSearchParams(window.location.search);
+  const initialSource = initialParams.get("source");
+  if (initialSource === "mic" || initialSource === "server_mic") {
+    switchToMic();
+  } else {
+    switchToSynth();
+  }
 })();
