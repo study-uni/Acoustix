@@ -1,5 +1,6 @@
 /**
  * Acoustix - Real-Time Acoustic Waterfall Spectrogram & Telemetry Dashboard
+ * Minimalist, monochromatic brutalist interface.
  */
 
 (() => {
@@ -7,7 +8,6 @@
   const statusDot = document.getElementById("statusDot");
   const statusText = document.getElementById("statusText");
   const rpmValue = document.getElementById("rpmValue");
-  const rpmSub = document.getElementById("rpmSub");
   const bpfValue = document.getElementById("bpfValue");
   const confidenceValue = document.getElementById("confidenceValue");
   const confidenceFill = document.getElementById("confidenceFill");
@@ -45,7 +45,7 @@
     offscreenCanvas.width = width;
     offscreenCanvas.height = height;
     offscreenCtx = offscreenCanvas.getContext("2d", { willReadFrequently: true });
-    offscreenCtx.fillStyle = "#000004";
+    offscreenCtx.fillStyle = "#040405";
     offscreenCtx.fillRect(0, 0, width, height);
 
     if (oldBuffer.width > 0 && oldBuffer.height > 0) {
@@ -56,18 +56,21 @@
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
 
-  // Precompute 256-color Turbo colormap LUT
+  // Precompute 256-color Grayscale colormap LUT
   const COLOR_LUT = new Uint8ClampedArray(256 * 4);
   for (let i = 0; i < 256; i++) {
     const t = i / 255.0;
-    // Turbo colormap polynomial fit
-    const r = Math.max(0, Math.min(255, Math.round(255 * (0.1357 + t * (4.61539 - t * (42.6603 - t * (132.131 - t * (161.076 - 63.666 * t))))))));
-    const g = Math.max(0, Math.min(255, Math.round(255 * (0.0914 + t * (2.19418 + t * (16.4498 - t * (53.5458 + t * (58.3797 - 21.6629 * t))))))));
-    const b = Math.max(0, Math.min(255, Math.round(255 * (0.1067 + t * (12.5833 - t * (90.2838 - t * (242.062 - t * (282.883 - 120.306 * t))))))));
+    // High dynamic range monochrome curve: near-black noise floor, bright peaks
+    let v = 0;
+    if (t > 0.02) {
+      v = Math.round(255 * Math.pow((t - 0.02) / 0.98, 1.25));
+    }
+    v = Math.max(0, Math.min(255, v));
+
     const idx = i * 4;
-    COLOR_LUT[idx] = r;
-    COLOR_LUT[idx + 1] = g;
-    COLOR_LUT[idx + 2] = b;
+    COLOR_LUT[idx] = v;
+    COLOR_LUT[idx + 1] = v;
+    COLOR_LUT[idx + 2] = v;
     COLOR_LUT[idx + 3] = 255;
   }
 
@@ -92,7 +95,7 @@
     const maxDb = 0.0;
     const dbRange = maxDb - minDb;
 
-    // Map each horizontal pixel x to frequency bin and colormap color
+    // Map each horizontal pixel x to frequency bin and grayscale LUT
     for (let x = 0; x < width; x++) {
       const binIdx = Math.min(numBins - 1, Math.floor((x / width) * numBins));
       const db = spectrum[binIdx];
@@ -114,7 +117,7 @@
     const now = performance.now();
     if (now - lastFpsTime >= 1000) {
       const fps = Math.round((frameCount * 1000) / (now - lastFpsTime));
-      fpsInfo.textContent = `Stream Rate: ${fps} FPS`;
+      fpsInfo.textContent = `STREAM: ${fps} FPS`;
       frameCount = 0;
       lastFpsTime = now;
     }
@@ -130,11 +133,11 @@
       : 6000.0;
 
     // 2. Frequency Grid Overlay (1 kHz intervals)
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.07)";
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 4]);
     ctx.font = "10px ui-monospace, monospace";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
 
     for (let f = 1000; f < maxFreq; f += 1000) {
       const x = (f / maxFreq) * width;
@@ -143,10 +146,10 @@
       ctx.lineTo(x, height);
       ctx.stroke();
 
-      ctx.fillText(`${f / 1000}k`, x + 3, height - 8);
+      ctx.fillText(`${f / 1000}K`, x + 3, height - 8);
     }
 
-    // 3. Harmonic Tracking Overlays
+    // 3. Harmonic Tracking Overlays (monochrome precision markers)
     if (lastPacket && lastPacket.bpf > 0 && lastPacket.confidence > 0.1) {
       const bpf = lastPacket.bpf;
       const harmonics = lastPacket.harmonics || [bpf, bpf * 2, bpf * 3, bpf * 4];
@@ -157,13 +160,11 @@
 
         ctx.beginPath();
         if (i === 0) {
-          // Fundamental BPF line (solid / distinct cyan glow)
-          ctx.strokeStyle = "rgba(6, 182, 212, 0.9)";
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+          ctx.lineWidth = 1.5;
           ctx.setLineDash([4, 2]);
         } else {
-          // Harmonics (softer cyan)
-          ctx.strokeStyle = "rgba(6, 182, 212, 0.45)";
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
           ctx.lineWidth = 1;
           ctx.setLineDash([2, 3]);
         }
@@ -171,11 +172,10 @@
         ctx.lineTo(x, height);
         ctx.stroke();
 
-        // Harmonic label header tag
-        ctx.fillStyle = i === 0 ? "#06b6d4" : "rgba(6, 182, 212, 0.75)";
-        ctx.font = i === 0 ? "bold 11px ui-monospace, monospace" : "10px ui-monospace, monospace";
+        ctx.fillStyle = i === 0 ? "#ffffff" : "rgba(255, 255, 255, 0.6)";
+        ctx.font = i === 0 ? "bold 10px ui-monospace, monospace" : "10px ui-monospace, monospace";
         const tag = `${i + 1}×`;
-        ctx.fillText(tag, x + 3, 14 + i * 12);
+        ctx.fillText(tag, x + 3, 14 + i * 14);
       });
     }
 
@@ -191,37 +191,17 @@
     const bpf = packet.bpf || 0;
     const conf = Math.max(0, Math.min(1, packet.confidence || 0));
 
-    // Dynamic color coding based on tracking confidence
-    let color = "var(--text-muted)";
-    let statusTextMsg = "Tracking Lost";
-    if (conf >= 0.7) {
-      color = "var(--accent-green)";
-      statusTextMsg = "Locked (Nominal)";
-    } else if (conf >= 0.4) {
-      color = "var(--accent-amber)";
-      statusTextMsg = "Acquiring Lock";
-    } else {
-      color = "var(--accent-red)";
-      statusTextMsg = "Low Confidence";
-    }
-
     rpmValue.textContent = `${Math.round(rpm).toLocaleString()} RPM`;
-    rpmValue.style.color = color;
-    rpmSub.textContent = statusTextMsg;
-
-    bpfValue.textContent = `${bpf.toFixed(1)} Hz`;
+    bpfValue.textContent = `${bpf.toFixed(1)} HZ`;
 
     const confPct = (conf * 100).toFixed(1);
     confidenceValue.textContent = `${confPct}%`;
-    confidenceValue.style.color = color;
     confidenceFill.style.width = `${confPct}%`;
-    confidenceFill.style.background = color;
 
-    // Tracked Harmonics Tags
     const harmonics = packet.harmonics || [];
     if (harmonics.length > 0) {
       harmonicsList.innerHTML = harmonics
-        .map((h, i) => `<span class="harmonic-tag">${i + 1}&times; ${Math.round(h)} Hz</span>`)
+        .map((h, i) => `<span class="harmonic-tag">${i + 1}&times; ${Math.round(h)} HZ</span>`)
         .join("");
     }
   }
@@ -305,7 +285,7 @@
 
   if (btnMic) {
     btnMic.addEventListener("click", () => {
-      if (currentSource === "mic") return;
+      if (currentSource === "mic" || currentSource === "server_mic") return;
       startMic();
     });
   }
@@ -335,8 +315,7 @@
 
     ws.onopen = () => {
       statusDot.classList.add("connected");
-      const label = currentSource === "synth" ? "Synth" : "Live Mic";
-      statusText.textContent = `Connected (${label})`;
+      statusText.textContent = "CONNECTED";
     };
 
     ws.onmessage = (event) => {
@@ -352,7 +331,7 @@
 
     ws.onclose = () => {
       statusDot.classList.remove("connected");
-      statusText.textContent = "Disconnected (Reconnecting...)";
+      statusText.textContent = "DISCONNECTED";
       reconnectTimer = setTimeout(() => connectWebSocket(query), 2000);
     };
 

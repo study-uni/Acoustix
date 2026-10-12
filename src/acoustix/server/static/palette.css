@@ -1,0 +1,51 @@
+/* Acoustix - Design Tokens & Grayscale Color Palette
+ * Single source of truth for UI colors and grayscale spectrogram theme.
+ * Minimalist, precision engineering dark-mode design system.
+ */
+
+:root {
+  /* Surfaces & Backgrounds */
+  --bg-app: #08080a;
+  --bg-surface: #0e0e11;
+  --bg-panel: #131317;
+  --bg-panel-hover: #19191e;
+  --bg-elevated: #1e1e24;
+  --bg-canvas: #040405;
+
+  /* Borders & Technical Dividers */
+  --border-subtle: #202026;
+  --border-default: #2a2a34;
+  --border-strong: #3f3f4a;
+  --border-focus: #52525e;
+
+  /* Typography Scale */
+  --text-primary: #f4f4f6;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-dim: #44444c;
+
+  /* Functional Accents */
+  --accent-white: #ffffff;
+  --accent-light: #e4e4e7;
+  --accent-gray: #71717a;
+  --accent-dark: #27272a;
+
+  /* Indicators */
+  --status-connected: #22c55e;
+  --status-disconnected: #52525b;
+
+  /* Waterfall Spectrogram Grayscale Colormap */
+  --colormap-gradient: linear-gradient(
+    to right,
+    #050505 0%,
+    #18181b 18%,
+    #3f3f46 40%,
+    #71717a 65%,
+    #d4d4d8 85%,
+    #ffffff 100%
+  );
+
+  /* Typography Stacks */
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
