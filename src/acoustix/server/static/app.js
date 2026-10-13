@@ -86,6 +86,95 @@
   let lastFpsTime = performance.now();
   let rowImageData = offscreenCtx.createImageData(width, 1);
 
+  // Tracking State Machine & Display Smoothing
+  let isLocked = false;
+  let lockCounter = 0;
+  let holdCounter = 0;
+  let smoothedRpm = 0;
+  let smoothedBpf = 0;
+  let smoothedConf = 0;
+  let lastHudUpdate = 0;
+
+  function updateTrackerState(packet) {
+    const rawConf = Math.max(0, Math.min(1, packet.confidence || 0));
+    const rawRpm = packet.rpm || 0;
+    const rawBpf = packet.bpf || 0;
+
+    // Smooth confidence display
+    smoothedConf = smoothedConf * 0.8 + rawConf * 0.2;
+
+    // Hysteresis & Lock-in logic
+    if (!isLocked) {
+      if (rawConf >= 0.25 && rawBpf > 0) {
+        lockCounter++;
+        if (lockCounter >= 2) {
+          isLocked = true;
+          holdCounter = 15;
+          smoothedRpm = rawRpm;
+          smoothedBpf = rawBpf;
+        }
+      } else {
+        lockCounter = Math.max(0, lockCounter - 1);
+      }
+    } else {
+      if (rawConf >= 0.18 && rawBpf > 0) {
+        holdCounter = 15;
+        const alpha = 0.3;
+        smoothedRpm = smoothedRpm * (1 - alpha) + rawRpm * alpha;
+        smoothedBpf = smoothedBpf * (1 - alpha) + rawBpf * alpha;
+      } else {
+        holdCounter--;
+        if (holdCounter <= 0) {
+          isLocked = false;
+          lockCounter = 0;
+        }
+      }
+    }
+  }
+
+  function resetTrackerState() {
+    isLocked = false;
+    lockCounter = 0;
+    holdCounter = 0;
+    smoothedRpm = 0;
+    smoothedBpf = 0;
+    smoothedConf = 0;
+  }
+
+  // Update HUD Metrics (Fixed-slot zero-layout-shift)
+  function updateHUD() {
+    const confPct = (smoothedConf * 100).toFixed(1);
+    confidenceValue.textContent = `${confPct}%`;
+    confidenceFill.style.width = `${confPct}%`;
+
+    if (!isLocked) {
+      rpmValue.textContent = "--- RPM";
+      rpmValue.style.color = "var(--text-muted)";
+      bpfValue.textContent = "--- HZ";
+      bpfValue.style.color = "var(--text-muted)";
+
+      hTags.forEach((el, i) => {
+        if (el) {
+          el.textContent = `${i + 1}× ---`;
+          el.classList.remove("active");
+        }
+      });
+    } else {
+      rpmValue.textContent = `${Math.round(smoothedRpm).toLocaleString()} RPM`;
+      rpmValue.style.color = "var(--text-primary)";
+      bpfValue.textContent = `${smoothedBpf.toFixed(1)} HZ`;
+      bpfValue.style.color = "var(--text-primary)";
+
+      hTags.forEach((el, i) => {
+        if (el) {
+          const hFreq = Math.round(smoothedBpf * (i + 1));
+          el.textContent = `${i + 1}× ${hFreq}`;
+          el.classList.add("active");
+        }
+      });
+    }
+  }
+
   // Push new spectral slice to waterfall buffer
   function processSpectralFrame(packet) {
     const spectrum = packet.spectrum_db;
@@ -156,7 +245,7 @@
     }
 
     // 3. Harmonic Tracking Overlays (monochrome precision markers)
-    if (isLocked && smoothedBpf > 400.0) {
+    if (isLocked && smoothedBpf > 0) {
       const bpf = smoothedBpf;
       const harmonics = [bpf, bpf * 2, bpf * 3, bpf * 4];
 
@@ -197,94 +286,8 @@
     requestAnimationFrame(render);
   }
 
-  // Tracking State Machine & Display Smoothing
-  let isLocked = false;
-  let lockCounter = 0;
-  let holdCounter = 0;
-  let smoothedRpm = 0;
-  let smoothedBpf = 0;
-  let smoothedConf = 0;
-  let lastHudUpdate = 0;
-
-  function updateTrackerState(packet) {
-    const rawConf = Math.max(0, Math.min(1, packet.confidence || 0));
-    const rawRpm = packet.rpm || 0;
-    const rawBpf = packet.bpf || 0;
-
-    // Smooth confidence display
-    smoothedConf = smoothedConf * 0.8 + rawConf * 0.2;
-
-    // Hysteresis & Lock-in logic
-    if (!isLocked) {
-      if (rawConf >= 0.35 && rawBpf > 400.0) {
-        lockCounter++;
-        if (lockCounter >= 3) {
-          isLocked = true;
-          holdCounter = 15;
-          smoothedRpm = rawRpm;
-          smoothedBpf = rawBpf;
-        }
-      } else {
-        lockCounter = Math.max(0, lockCounter - 1);
-      }
-    } else {
-      if (rawConf >= 0.20 && rawBpf > 400.0) {
-        holdCounter = 15;
-        const alpha = 0.25;
-        smoothedRpm = smoothedRpm * (1 - alpha) + rawRpm * alpha;
-        smoothedBpf = smoothedBpf * (1 - alpha) + rawBpf * alpha;
-      } else {
-        holdCounter--;
-        if (holdCounter <= 0) {
-          isLocked = false;
-          lockCounter = 0;
-        }
-      }
-    }
-  }
-
-  function resetTrackerState() {
-    isLocked = false;
-    lockCounter = 0;
-    holdCounter = 0;
-    smoothedRpm = 0;
-    smoothedBpf = 0;
-    smoothedConf = 0;
-  }
-
-  // Update HUD Metrics (Fixed-slot zero-layout-shift)
-  function updateHUD() {
-    const confPct = (smoothedConf * 100).toFixed(1);
-    confidenceValue.textContent = `${confPct}%`;
-    confidenceFill.style.width = `${confPct}%`;
-
-    if (!isLocked) {
-      rpmValue.textContent = "--- RPM";
-      rpmValue.style.color = "var(--text-muted)";
-      bpfValue.textContent = "--- HZ";
-      bpfValue.style.color = "var(--text-muted)";
-
-      hTags.forEach((el, i) => {
-        if (el) {
-          el.textContent = `${i + 1}× ---`;
-          el.classList.remove("active");
-        }
-      });
-    } else {
-      rpmValue.textContent = `${Math.round(smoothedRpm).toLocaleString()} RPM`;
-      rpmValue.style.color = "var(--text-primary)";
-      bpfValue.textContent = `${smoothedBpf.toFixed(1)} HZ`;
-      bpfValue.style.color = "var(--text-primary)";
-
-      hTags.forEach((el, i) => {
-        if (el) {
-          const hFreq = Math.round(smoothedBpf * (i + 1));
-          el.textContent = `${i + 1}× ${hFreq}`;
-          el.classList.add("active");
-        }
-      });
-    }
-  }
+  // Start render loop immediately
+  requestAnimationFrame(render);
 
   // Source Switcher & Capture Management
   const btnSynth = document.getElementById("btnSynth");
