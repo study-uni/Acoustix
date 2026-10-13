@@ -12,6 +12,12 @@
   const confidenceValue = document.getElementById("confidenceValue");
   const confidenceFill = document.getElementById("confidenceFill");
   const harmonicsList = document.getElementById("harmonicsList");
+  const hTags = [
+    document.getElementById("hTag0"),
+    document.getElementById("hTag1"),
+    document.getElementById("hTag2"),
+    document.getElementById("hTag3"),
+  ];
   const fpsInfo = document.getElementById("fpsInfo");
   const canvas = document.getElementById("waterfallCanvas");
   const canvasWrapper = document.getElementById("canvasWrapper");
@@ -150,9 +156,9 @@
     }
 
     // 3. Harmonic Tracking Overlays (monochrome precision markers)
-    if (lastPacket && lastPacket.bpf > 0 && lastPacket.confidence >= 0.2) {
-      const bpf = lastPacket.bpf;
-      const harmonics = lastPacket.harmonics || [bpf, bpf * 2, bpf * 3, bpf * 4];
+    if (isLocked && smoothedBpf > 400.0) {
+      const bpf = smoothedBpf;
+      const harmonics = [bpf, bpf * 2, bpf * 3, bpf * 4];
 
       harmonics.forEach((hFreq, i) => {
         if (hFreq <= 0 || hFreq > maxFreq) return;
@@ -180,39 +186,103 @@
     }
 
     ctx.setLineDash([]);
+
+    // Decoupled HUD update throttled to 30 Hz to eliminate DOM thrashing
+    const now = performance.now();
+    if (now - lastHudUpdate >= 33) {
+      updateHUD();
+      lastHudUpdate = now;
+    }
+
     requestAnimationFrame(render);
   }
 
-  requestAnimationFrame(render);
+  // Tracking State Machine & Display Smoothing
+  let isLocked = false;
+  let lockCounter = 0;
+  let holdCounter = 0;
+  let smoothedRpm = 0;
+  let smoothedBpf = 0;
+  let smoothedConf = 0;
+  let lastHudUpdate = 0;
 
-  // Update HUD Metrics
-  function updateHUD(packet) {
-    const rpm = packet.rpm || 0;
-    const bpf = packet.bpf || 0;
-    const conf = Math.max(0, Math.min(1, packet.confidence || 0));
+  function updateTrackerState(packet) {
+    const rawConf = Math.max(0, Math.min(1, packet.confidence || 0));
+    const rawRpm = packet.rpm || 0;
+    const rawBpf = packet.bpf || 0;
 
-    const confPct = (conf * 100).toFixed(1);
+    // Smooth confidence display
+    smoothedConf = smoothedConf * 0.8 + rawConf * 0.2;
+
+    // Hysteresis & Lock-in logic
+    if (!isLocked) {
+      if (rawConf >= 0.35 && rawBpf > 400.0) {
+        lockCounter++;
+        if (lockCounter >= 3) {
+          isLocked = true;
+          holdCounter = 15;
+          smoothedRpm = rawRpm;
+          smoothedBpf = rawBpf;
+        }
+      } else {
+        lockCounter = Math.max(0, lockCounter - 1);
+      }
+    } else {
+      if (rawConf >= 0.20 && rawBpf > 400.0) {
+        holdCounter = 15;
+        const alpha = 0.25;
+        smoothedRpm = smoothedRpm * (1 - alpha) + rawRpm * alpha;
+        smoothedBpf = smoothedBpf * (1 - alpha) + rawBpf * alpha;
+      } else {
+        holdCounter--;
+        if (holdCounter <= 0) {
+          isLocked = false;
+          lockCounter = 0;
+        }
+      }
+    }
+  }
+
+  function resetTrackerState() {
+    isLocked = false;
+    lockCounter = 0;
+    holdCounter = 0;
+    smoothedRpm = 0;
+    smoothedBpf = 0;
+    smoothedConf = 0;
+  }
+
+  // Update HUD Metrics (Fixed-slot zero-layout-shift)
+  function updateHUD() {
+    const confPct = (smoothedConf * 100).toFixed(1);
     confidenceValue.textContent = `${confPct}%`;
     confidenceFill.style.width = `${confPct}%`;
 
-    if (conf < 0.2) {
+    if (!isLocked) {
       rpmValue.textContent = "--- RPM";
       rpmValue.style.color = "var(--text-muted)";
       bpfValue.textContent = "--- HZ";
       bpfValue.style.color = "var(--text-muted)";
-      harmonicsList.innerHTML = '<span class="harmonic-tag">NO TARGET</span>';
+
+      hTags.forEach((el, i) => {
+        if (el) {
+          el.textContent = `${i + 1}× ---`;
+          el.classList.remove("active");
+        }
+      });
     } else {
-      rpmValue.textContent = `${Math.round(rpm).toLocaleString()} RPM`;
+      rpmValue.textContent = `${Math.round(smoothedRpm).toLocaleString()} RPM`;
       rpmValue.style.color = "var(--text-primary)";
-      bpfValue.textContent = `${bpf.toFixed(1)} HZ`;
+      bpfValue.textContent = `${smoothedBpf.toFixed(1)} HZ`;
       bpfValue.style.color = "var(--text-primary)";
 
-      const harmonics = packet.harmonics || [];
-      if (harmonics.length > 0) {
-        harmonicsList.innerHTML = harmonics
-          .map((h, i) => `<span class="harmonic-tag">${i + 1}&times; ${Math.round(h)} HZ</span>`)
-          .join("");
-      }
+      hTags.forEach((el, i) => {
+        if (el) {
+          const hFreq = Math.round(smoothedBpf * (i + 1));
+          el.textContent = `${i + 1}× ${hFreq}`;
+          el.classList.add("active");
+        }
+      });
     }
   }
 
@@ -241,6 +311,7 @@
 
   async function switchToMic() {
     stopMic();
+    resetTrackerState();
     currentSource = "mic";
     if (btnMic) btnMic.classList.add("active");
     if (btnSynth) btnSynth.classList.remove("active");
@@ -288,6 +359,7 @@
 
   function switchToSynth() {
     stopMic();
+    resetTrackerState();
     currentSource = "synth";
     if (btnSynth) btnSynth.classList.add("active");
     if (btnMic) btnMic.classList.remove("active");
@@ -336,7 +408,7 @@
         const packet = JSON.parse(event.data);
         lastPacket = packet;
         processSpectralFrame(packet);
-        updateHUD(packet);
+        updateTrackerState(packet);
       } catch (err) {
         console.error("Failed to parse packet:", err);
       }

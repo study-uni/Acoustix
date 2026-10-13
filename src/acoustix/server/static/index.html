@@ -130,11 +130,15 @@
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: 4px;
-      padding: 14px 16px;
+      padding: 12px 16px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      min-height: 88px;
+      height: 94px;
+      min-height: 94px;
+      max-height: 94px;
+      box-sizing: border-box;
+      overflow: hidden;
     }
 
     .hud-card-label {
@@ -144,6 +148,9 @@
       letter-spacing: 1px;
       text-transform: uppercase;
       color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .hud-card-value {
@@ -151,8 +158,11 @@
       font-size: 24px;
       font-weight: 600;
       color: var(--text-primary);
-      margin-top: 8px;
-      line-height: 1.1;
+      margin-top: 4px;
+      line-height: 28px;
+      height: 28px;
+      white-space: nowrap;
+      overflow: hidden;
     }
 
     .confidence-meter {
@@ -160,7 +170,7 @@
       background: var(--border-subtle);
       border-radius: 2px;
       overflow: hidden;
-      margin-top: 8px;
+      margin-top: 6px;
     }
 
     .confidence-fill {
@@ -171,20 +181,33 @@
     }
 
     .harmonics-list {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      margin-top: 6px;
+      height: 24px;
+      align-items: center;
     }
 
     .harmonic-tag {
       font-family: var(--font-mono);
-      font-size: 11px;
-      padding: 3px 6px;
+      font-size: 10px;
+      padding: 3px 2px;
       border-radius: 3px;
       background: var(--bg-panel);
       border: 1px solid var(--border-subtle);
-      color: var(--text-secondary);
+      color: var(--text-dim);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .harmonic-tag.active {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
     }
 
     /* Waterfall Spectrogram Container */
@@ -195,7 +218,10 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      flex: 1;
+      height: 560px;
+      min-height: 560px;
+      max-height: 560px;
+      box-sizing: border-box;
     }
 
     .spectrogram-header {
@@ -297,10 +323,10 @@
       <div class="hud-card">
         <div class="hud-card-label">HARMONICS</div>
         <div class="harmonics-list" id="harmonicsList">
-          <span class="harmonic-tag">1&times; ---</span>
-          <span class="harmonic-tag">2&times; ---</span>
-          <span class="harmonic-tag">3&times; ---</span>
-          <span class="harmonic-tag">4&times; ---</span>
+          <span class="harmonic-tag" id="hTag0">1&times; ---</span>
+          <span class="harmonic-tag" id="hTag1">2&times; ---</span>
+          <span class="harmonic-tag" id="hTag2">3&times; ---</span>
+          <span class="harmonic-tag" id="hTag3">4&times; ---</span>
         </div>
       </div>
     </section>
@@ -326,6 +352,6 @@
     <div id="fpsInfo">STREAM: -- FPS</div>
   </footer>
 
-  <script src="/static/app.js?v=20261013"></script>
+  <script src="/static/app.js?v=20261013-5"></script>
 </body>
 </html>
