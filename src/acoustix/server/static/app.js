@@ -6,7 +6,6 @@
 (() => {
   // DOM Elements
   const statusDot = document.getElementById("statusDot");
-  const statusText = document.getElementById("statusText");
   const rpmValue = document.getElementById("rpmValue");
   const bpfValue = document.getElementById("bpfValue");
   const confidenceValue = document.getElementById("confidenceValue");
@@ -403,7 +402,6 @@
 
     ws.onopen = () => {
       statusDot.classList.add("connected");
-      statusText.textContent = "CONNECTED";
     };
 
     ws.onmessage = (event) => {
@@ -419,7 +417,6 @@
 
     ws.onclose = () => {
       statusDot.classList.remove("connected");
-      statusText.textContent = "DISCONNECTED";
       reconnectTimer = setTimeout(() => connectWebSocket(query), 2000);
     };
 
